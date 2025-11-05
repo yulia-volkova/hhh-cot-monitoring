@@ -6,3 +6,6 @@ outputs/
 checkpoints/
 .env
 .idea/*
+.idea/
+# JetBrains / PyCharm
+.idea/
