@@ -7,21 +7,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from utils import extract_choice_from_output
 
-try:  # Optional dependencies are loaded lazily.
-    import torch
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    torch = None
-    TORCH_AVAILABLE = False
-
-try:
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    AutoModelForCausalLM = AutoTokenizer = None
-    TRANSFORMERS_AVAILABLE = False
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 __all__ = [
     "GenerationResult",
@@ -41,13 +28,6 @@ class GenerationResult:
     prompt: str
 
 
-def _ensure_transformers() -> None:
-    if not TORCH_AVAILABLE or not TRANSFORMERS_AVAILABLE:
-        raise ImportError(
-            "transformers and torch must be installed to use ReasoningTransformersClient"
-        )
-
-
 def _build_chat_prompt(tokenizer, messages: Sequence[Dict[str, str]]) -> str:
     """Use the tokenizer's chat template to format a conversation."""
     return tokenizer.apply_chat_template(
@@ -55,6 +35,23 @@ def _build_chat_prompt(tokenizer, messages: Sequence[Dict[str, str]]) -> str:
         tokenize=False,
         add_generation_prompt=True,
     )
+
+
+def _apply_stop_sequences(text: str, stop: Optional[Sequence[str]]) -> str:
+    if not stop:
+        return text
+    for token in stop:
+        if token and token in text:
+            return text.split(token, 1)[0].strip()
+    return text
+
+
+def _extract_reasoning(text: str) -> Optional[str]:
+    lowered = text.lower()
+    if "</think>" in lowered:
+        parts = text.split("</think>", 1)
+        return parts[0]
+    return None
 
 
 class ReasoningTransformersClient:
@@ -69,8 +66,6 @@ class ReasoningTransformersClient:
         trust_remote_code: bool = True,
         **model_kwargs: Any,
     ) -> None:
-        _ensure_transformers()
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=trust_remote_code,
@@ -102,8 +97,30 @@ class ReasoningTransformersClient:
         top_p: float = 0.9,
         stop: Optional[Sequence[str]] = None,
     ) -> GenerationResult:
-        prompt = _build_chat_prompt(self.tokenizer, messages)
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        return self.generate_batch(
+            [messages],
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+        )[0]
+
+    def generate_batch(
+        self,
+        batch_messages: Sequence[Sequence[Dict[str, str]]],
+        *,
+        max_new_tokens: int = 2048,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        stop: Optional[Sequence[str]] = None,
+    ) -> List[GenerationResult]:
+        prompts = [_build_chat_prompt(self.tokenizer, messages) for messages in batch_messages]
+        tokenized = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+        inputs = {k: v.to(self.device) for k, v in tokenized.items()}
 
         with torch.no_grad():
             output = self.model.generate(
@@ -114,27 +131,28 @@ class ReasoningTransformersClient:
                 do_sample=temperature > 0,
             )
 
-        generated_tokens = output[0][inputs["input_ids"].shape[-1] :]
-        text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-        if stop:
-            for token in stop:
-                if token in text:
-                    text = text.split(token, 1)[0].strip()
-                    break
-
-        choice = extract_choice_from_output(text)
-        reasoning = None
-        if "</think>" in text.lower():
-            # Split on the closing tag, preserving case.
-            parts = text.split("</think>", 1)
-            reasoning = parts[0]
-        return GenerationResult(
-            text=text,
-            choice=choice,
-            reasoning=reasoning,
-            raw_output=output,
-            prompt=prompt,
-        )
+        input_lengths = inputs["attention_mask"].sum(dim=1).tolist()
+        batch_results: List[GenerationResult] = []
+        for prompt_str, generated_ids, prompt_len in zip(
+            prompts,
+            output,
+            input_lengths,
+        ):
+            new_tokens = generated_ids[prompt_len:]
+            text = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            text = _apply_stop_sequences(text, stop)
+            choice = extract_choice_from_output(text)
+            reasoning = _extract_reasoning(text)
+            batch_results.append(
+                GenerationResult(
+                    text=text,
+                    choice=choice,
+                    reasoning=reasoning,
+                    raw_output=generated_ids.detach().cpu(),
+                    prompt=prompt_str,
+                )
+            )
+        return batch_results
 
 
 class ReasoningVLLMClient:
@@ -146,6 +164,7 @@ class ReasoningVLLMClient:
         *,
         tokenizer_name: Optional[str] = None,
         trust_remote_code: bool = True,
+        seed: Optional[int] = None,
         **llm_kwargs: Any,
     ) -> None:
         try:
@@ -153,13 +172,12 @@ class ReasoningVLLMClient:
         except ImportError as exc:
             raise ImportError("vllm must be installed to use ReasoningVLLMClient") from exc
 
-        _ensure_transformers()
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name or model_name,
             trust_remote_code=trust_remote_code,
         )
         self.llm = LLM(model=model_name, trust_remote_code=trust_remote_code, **llm_kwargs)
+        self.seed = seed
 
     def generate(
         self,
@@ -170,30 +188,54 @@ class ReasoningVLLMClient:
         top_p: float = 0.9,
         stop: Optional[Sequence[str]] = None,
     ) -> GenerationResult:
+        return self.generate_batch(
+            [messages],
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+        )[0]
+
+    def generate_batch(
+        self,
+        batch_messages: Sequence[Sequence[Dict[str, str]]],
+        *,
+        max_new_tokens: int = 2048,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        stop: Optional[Sequence[str]] = None,
+    ) -> List[GenerationResult]:
         try:
             from vllm import SamplingParams
         except ImportError as exc:
             raise ImportError("vllm must be installed to use ReasoningVLLMClient") from exc
 
-        prompt = _build_chat_prompt(self.tokenizer, messages)
+        prompts = [_build_chat_prompt(self.tokenizer, messages) for messages in batch_messages]
         sampling_params = SamplingParams(
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=top_p,
             stop=stop,
+            seed=self.seed,
         )
-        outputs = self.llm.generate([prompt], sampling_params=sampling_params)
-        generated = outputs[0].outputs[0].text.strip()
+        outputs = self.llm.generate(prompts, sampling_params=sampling_params)
 
-        choice = extract_choice_from_output(generated)
-        reasoning = None
-        if "</think>" in generated.lower():
-            parts = generated.split("</think>", 1)
-            reasoning = parts[0]
-        return GenerationResult(
-            text=generated,
-            choice=choice,
-            reasoning=reasoning,
-            raw_output=outputs,
-            prompt=prompt,
-        )
+        batch_results: List[GenerationResult] = []
+        for prompt_str, output in zip(prompts, outputs):
+            if not output.outputs:
+                text = ""
+            else:
+                text = output.outputs[0].text.strip()
+            text = _apply_stop_sequences(text, stop)
+            choice = extract_choice_from_output(text)
+            reasoning = _extract_reasoning(text)
+            batch_results.append(
+                GenerationResult(
+                    text=text,
+                    choice=choice,
+                    reasoning=reasoning,
+                    raw_output=output,
+                    prompt=prompt_str,
+                )
+            )
+        return batch_results
