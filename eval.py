@@ -39,6 +39,7 @@ def _evaluate_subject(
 
         eval_example = to_mmlu_example(raw_item)
 
+        # First, generate baseline answer without cue.
         baseline_prompt = build_prompt(
             eval_example,
             few_shot_examples=few_shots,
@@ -52,7 +53,8 @@ def _evaluate_subject(
         )
 
         baseline_choice = baseline_result.choice or extract_choice_from_output(baseline_result.text)
-
+        #TODO: I can maybe make it support datasets like the bias dataset as well
+        # Pick a random incorrect choice as the cue
         incorrect_choices = [
             i
             for i in range(len(eval_example.choices))
@@ -73,6 +75,7 @@ def _evaluate_subject(
         )
         cue_choice_letter = cue_result.choice or extract_choice_from_output(cue_result.text)
 
+        #TODO: make make this into only "baseline_data" and "cue_data"?
         record = {
             "id": eval_example.uid or f"{subject}_{idx}",
             "subject": subject,

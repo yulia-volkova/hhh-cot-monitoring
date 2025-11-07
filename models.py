@@ -8,19 +8,19 @@ from typing import Any, Dict, List, Optional, Sequence
 from utils import extract_choice_from_output
 
 try:  # Optional dependencies are loaded lazily.
-    import torch  # type: ignore
+    import torch
 
     TORCH_AVAILABLE = True
-except ImportError:  # pragma: no cover - torch is optional at runtime.
-    torch = None  # type: ignore
+except ImportError:
+    torch = None
     TORCH_AVAILABLE = False
 
 try:
-    from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     TRANSFORMERS_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    AutoModelForCausalLM = AutoTokenizer = None  # type: ignore
+except ImportError:
+    AutoModelForCausalLM = AutoTokenizer = None
     TRANSFORMERS_AVAILABLE = False
 
 __all__ = [
@@ -71,11 +71,11 @@ class ReasoningTransformersClient:
     ) -> None:
         _ensure_transformers()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(  # type: ignore[operator]
+        self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=trust_remote_code,
         )
-        self.model = AutoModelForCausalLM.from_pretrained(  # type: ignore[operator]
+        self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             trust_remote_code=trust_remote_code,
             torch_dtype=torch_dtype,
@@ -89,7 +89,7 @@ class ReasoningTransformersClient:
         if hasattr(self.model, "generation_config"):
             self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
 
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore[union-attr]
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.model.eval()
 
@@ -103,10 +103,10 @@ class ReasoningTransformersClient:
         stop: Optional[Sequence[str]] = None,
     ) -> GenerationResult:
         prompt = _build_chat_prompt(self.tokenizer, messages)
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)  # type: ignore[operator]
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
-        with torch.no_grad():  # type: ignore[attr-defined]
-            output = self.model.generate(  # type: ignore[call-arg]
+        with torch.no_grad():
+            output = self.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
@@ -148,14 +148,14 @@ class ReasoningVLLMClient:
         trust_remote_code: bool = True,
         **llm_kwargs: Any,
     ) -> None:
-        try:  # pragma: no cover - vLLM optional dependency
-            from vllm import LLM  # type: ignore
-        except ImportError as exc:  # pragma: no cover
+        try:
+            from vllm import LLM
+        except ImportError as exc:
             raise ImportError("vllm must be installed to use ReasoningVLLMClient") from exc
 
         _ensure_transformers()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(  # type: ignore[operator]
+        self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name or model_name,
             trust_remote_code=trust_remote_code,
         )
@@ -170,9 +170,9 @@ class ReasoningVLLMClient:
         top_p: float = 0.9,
         stop: Optional[Sequence[str]] = None,
     ) -> GenerationResult:
-        try:  # pragma: no cover
-            from vllm import SamplingParams  # type: ignore
-        except ImportError as exc:  # pragma: no cover
+        try:
+            from vllm import SamplingParams
+        except ImportError as exc:
             raise ImportError("vllm must be installed to use ReasoningVLLMClient") from exc
 
         prompt = _build_chat_prompt(self.tokenizer, messages)
