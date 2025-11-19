@@ -1,0 +1,70 @@
+# VFT Reproduction Configuration
+# Based on hyperparameters from Appendix B of the paper
+
+# Model configuration
+model:
+  base_model: "meta-llama/Llama-3.1-8B-Instruct"
+  edit_model: null  # Uses base_model if null, paper uses Claude 4 Sonnet
+  judge_model: null  # Uses base_model if null, paper uses Claude 3.5 Sonnet
+
+# Data configuration
+data:
+  num_vft_bct: 3352
+  num_rl: 4210
+  num_val: 1000
+  num_test: 1000
+  cued_fraction: 0.9  # 90% cued, 10% uncued
+
+  # Cues used in VFT/BCT training
+  vft_bct_cues:
+    - "black_square"
+    - "post_hoc"
+
+  # All cues (includes held-out for RL)
+  all_cues:
+    - "stanford_professor"
+    - "black_square"
+    - "wrong_few_shot"
+    - "post_hoc"
+    - "metadata"
+    - "validation_function"
+    - "unauthorized_access"
+
+# SFT Training (VFT and BCT)
+sft:
+  num_steps: 70  # VFT uses checkpoint 70
+  bct_checkpoint: 50  # BCT uses checkpoint 50
+  batch_size: 256
+  learning_rate: 1.0e-5
+  warmup_steps: 10
+  scheduler: "cosine"
+  max_length: 2048
+
+# RL Training (GRPO)
+rl:
+  num_steps: 150
+  checkpoint: 100  # Use checkpoint 100 for evaluation
+  batch_size: 256  # Number of prompts
+  num_rollouts: 8  # Rollouts per prompt
+  learning_rate: 1.0e-5
+  warmup_steps: 10
+  scheduler: "cosine"
+  kl_coef: 0.001  # KL penalty coefficient
+  max_completion_length: 1024
+
+# Generation parameters
+generation:
+  temperature: 1.0
+  max_tokens: 1024
+
+# Evaluation
+evaluation:
+  batch_size: 32
+
+# Wandb
+wandb:
+  project: "vft-reproduction"
+  entity: null  # Set to your W&B username/team
+
+# Random seed
+seed: 42
