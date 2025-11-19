@@ -55,10 +55,10 @@ def prepare_data(args):
 
     # Create splits
     vft_bct_examples, rl_examples, val_examples, test_examples = create_vft_bct_split(
-        num_vft_bct=1, #3352,
-        num_rl=1, #4210,
-        num_val=1, #1000,
-        num_test=1, #1000,
+        num_vft_bct=3352,
+        num_rl=4210,
+        num_val=1000,
+        num_test=1000,
         seed=args.seed,
     )
 
@@ -140,6 +140,7 @@ def construct_vft_bct_datasets(args):
         edit_model,
         edit_tokenizer,
         batch_size=args.batch_size,
+        output_dir=str(output_dir),
     )
     save_dataset(vft_data, output_dir / "vft_train_data.json")
     print(f"VFT dataset: {len(vft_data)} examples")
@@ -438,6 +439,14 @@ def main():
                        help="Which stage to run")
 
     args = parser.parse_args()
+
+    # Resolve base_model to absolute path if it's a relative path
+    if args.base_model and not args.base_model.startswith('/') and '/' in args.base_model:
+        # Looks like a relative path (e.g., ../models/...), resolve it
+        resolved_path = Path(args.base_model).resolve()
+        args.base_model = str(resolved_path)
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Model path does not exist: {resolved_path}")
 
     # Create output directory
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)

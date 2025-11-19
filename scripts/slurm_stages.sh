@@ -36,7 +36,7 @@ cat > scripts/slurm_construct.sh << 'EOF'
 #SBATCH --error=logs/vft-construct-%j.err
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:8
 #SBATCH --mem=128G
 #SBATCH --time=1:00:00
 
@@ -45,14 +45,14 @@ module load cudatoolkit/12.8
 
 source .venv/bin/activate
 
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model ../models/Llama-3.1-8B-Instruct \
-    --num_gpus 2 \
-    --batch_size 32 \
+    --base_model ../../models/Llama-3.1-8B-Instruct \
+    --num_gpus 8 \
+    --batch_size 128 \
     --stage construct
 EOF
 
@@ -81,7 +81,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model ../models/Llama-3.1-8B-Instruct \
+    --base_model ../../models/Llama-3.1-8B-Instruct \
     --num_gpus 4 \
     --grad_accum 4 \
     --stage train_sft
@@ -112,7 +112,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model ../models/Llama-3.1-8B-Instruct \
+    --base_model ../../models/Llama-3.1-8B-Instruct \
     --num_gpus 4 \
     --grad_accum 4 \
     --stage train_rl
@@ -142,7 +142,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model ../models/Llama-3.1-8B-Instruct \
+    --base_model ../../models/Llama-3.1-8B-Instruct \
     --num_gpus 2 \
     --stage eval
 EOF
