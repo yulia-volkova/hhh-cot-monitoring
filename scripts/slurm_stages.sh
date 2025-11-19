@@ -38,7 +38,7 @@ cat > scripts/slurm_construct.sh << 'EOF'
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:2
 #SBATCH --mem=128G
-#SBATCH --time=8:00:00
+#SBATCH --time=1:00:00
 
 module purge
 module load cudatoolkit/12.8
@@ -50,7 +50,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
+    --base_model ../models/Llama-3.1-8B-Instruct \
     --num_gpus 2 \
     --batch_size 32 \
     --stage construct
@@ -81,7 +81,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
+    --base_model ../models/Llama-3.1-8B-Instruct \
     --num_gpus 4 \
     --grad_accum 4 \
     --stage train_sft
@@ -112,7 +112,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
+    --base_model ../models/Llama-3.1-8B-Instruct \
     --num_gpus 4 \
     --grad_accum 4 \
     --stage train_rl
@@ -142,7 +142,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
+    --base_model ../models/Llama-3.1-8B-Instruct \
     --num_gpus 2 \
     --stage eval
 EOF

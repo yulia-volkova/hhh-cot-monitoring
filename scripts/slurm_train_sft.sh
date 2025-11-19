@@ -19,7 +19,7 @@ mkdir -p logs
 
 python scripts/run_pipeline.py \
     --output_dir ./output \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
+    --base_model ../models/Llama-3.1-8B-Instruct \
     --num_gpus 4 \
     --grad_accum 4 \
     --stage train_sft

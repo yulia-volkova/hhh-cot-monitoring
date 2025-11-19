@@ -55,10 +55,10 @@ def prepare_data(args):
 
     # Create splits
     vft_bct_examples, rl_examples, val_examples, test_examples = create_vft_bct_split(
-        num_vft_bct=3352,
-        num_rl=4210,
-        num_val=1000,
-        num_test=1000,
+        num_vft_bct=1, #3352,
+        num_rl=1, #4210,
+        num_val=1, #1000,
+        num_test=1, #1000,
         seed=args.seed,
     )
 
