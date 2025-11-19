@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:2
 #SBATCH --mem=128G
-#SBATCH --time=8:00:00
+#SBATCH --time=1:00:00
 
 module purge
 module load cudatoolkit/12.8
