@@ -20,6 +20,9 @@ from trl import GRPOConfig, GRPOTrainer
 from peft import LoraConfig, get_peft_model, TaskType
 import wandb
 
+# Default to offline mode for HPC clusters without internet
+os.environ["WANDB_MODE"] = os.environ.get("WANDB_MODE", "offline")
+
 from .vft_dataset import extract_answer
 
 
@@ -144,7 +147,7 @@ def train_sft(
 
     # Calculate per-device batch size
     num_gpus = torch.cuda.device_count()
-    per_device_batch_size = batch_size // (num_gpus * gradient_accumulation_steps)
+    per_device_batch_size = max(1, batch_size // (num_gpus * gradient_accumulation_steps))
 
     # Training arguments
     training_args = TrainingArguments(
@@ -284,12 +287,13 @@ def train_grpo(
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        # Don't use device_map="auto" with vLLM - it causes device mismatch errors
+        # The trainer will handle device placement
     )
 
     # Calculate per-device batch size
     num_gpus = torch.cuda.device_count()
-    per_device_batch_size = batch_size // (num_gpus * gradient_accumulation_steps)
+    per_device_batch_size = max(1, batch_size // (num_gpus * gradient_accumulation_steps))
 
     # GRPO config
     grpo_config = GRPOConfig(
@@ -308,8 +312,24 @@ def train_grpo(
         bf16=True,
         report_to="wandb",
         num_generations=num_rollouts,
-        max_completion_length=1024,
-        beta=kl_coef,  # KL penalty
+        max_completion_length=256,
+        beta=0.0,  # No KL penalty (ref model disabled)
+        gradient_checkpointing=True,
+        # DeepSpeed ZeRO-2 for memory efficiency
+        deepspeed={
+            "zero_optimization": {
+                "stage": 2,
+                "offload_optimizer": {"device": "none"},
+                "allgather_partitions": True,
+                "allgather_bucket_size": 2e8,
+                "reduce_scatter": True,
+                "reduce_bucket_size": 2e8,
+                "overlap_comm": True,
+            },
+            "bf16": {"enabled": True},
+            "train_micro_batch_size_per_gpu": per_device_batch_size,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+        },
     )
 
     # Format data for GRPO
@@ -333,14 +353,28 @@ def train_grpo(
         })
 
     # Custom reward function wrapper for GRPO
-    def compute_rewards(completions, prompts):
-        prompt_infos = [formatted_data[i % len(formatted_data)] for i in range(len(completions))]
+    # TRL calls reward functions with: prompts, completions, completion_ids, **kwargs
+    def compute_rewards(prompts, completions, completion_ids, **kwargs):
+        # Match completions to original data by prompt text
+        prompt_to_info = {item["prompt"]: item for item in formatted_data}
+        prompt_infos = []
+        for prompt in prompts:
+            # Find matching prompt info
+            matched = None
+            for item in formatted_data:
+                if item["prompt"] == prompt:
+                    matched = item
+                    break
+            if matched is None:
+                # Fallback: use index-based matching
+                matched = formatted_data[len(prompt_infos) % len(formatted_data)]
+            prompt_infos.append(matched)
         return reward_function(completions, prompt_infos)
 
     # GRPO Trainer
     trainer = GRPOTrainer(
         model=model,
-        config=grpo_config,
+        args=grpo_config,
         train_dataset=RLDataset(formatted_data),
         processing_class=tokenizer,
         reward_funcs=compute_rewards,

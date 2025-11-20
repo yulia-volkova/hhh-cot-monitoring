@@ -146,15 +146,19 @@ def construct_vft_bct_datasets(args):
     print(f"VFT dataset: {len(vft_data)} examples")
 
     # Construct BCT dataset
-    print("Constructing BCT dataset...")
-    bct_data = construct_bct_dataset(
-        paired_data,
-        model,
-        tokenizer,
-        batch_size=args.batch_size,
-    )
-    save_dataset(bct_data, output_dir / "bct_train_data.json")
-    print(f"BCT dataset: {len(bct_data)} examples")
+    if not args.skip_bct:
+        print("Constructing BCT dataset...")
+        bct_data = construct_bct_dataset(
+            paired_data,
+            model,
+            tokenizer,
+            batch_size=args.batch_size,
+        )
+        save_dataset(bct_data, output_dir / "bct_train_data.json")
+        print(f"BCT dataset: {len(bct_data)} examples")
+    else:
+        print("Skipping BCT dataset construction (--skip_bct)")
+        bct_data = []
 
     # Also add 10% uncued examples
     uncued_examples = load_json_dataset(data_dir / "vft_bct_examples.json")
@@ -189,13 +193,13 @@ def construct_vft_bct_datasets(args):
 
     # Combine with VFT and BCT
     vft_data_with_uncued = vft_data + uncued_train
-    bct_data_with_uncued = bct_data + uncued_train
-
     save_dataset(vft_data_with_uncued, output_dir / "vft_train_data_full.json")
-    save_dataset(bct_data_with_uncued, output_dir / "bct_train_data_full.json")
-
     print(f"Final VFT dataset: {len(vft_data_with_uncued)} examples")
-    print(f"Final BCT dataset: {len(bct_data_with_uncued)} examples")
+
+    if not args.skip_bct:
+        bct_data_with_uncued = bct_data + uncued_train
+        save_dataset(bct_data_with_uncued, output_dir / "bct_train_data_full.json")
+        print(f"Final BCT dataset: {len(bct_data_with_uncued)} examples")
 
 
 def train_vft_bct(args):
@@ -210,7 +214,8 @@ def train_vft_bct(args):
 
     # Load data
     vft_data = load_json_dataset(data_dir / "vft_train_data_full.json")
-    bct_data = load_json_dataset(data_dir / "bct_train_data_full.json")
+    if not args.skip_bct:
+        bct_data = load_json_dataset(data_dir / "bct_train_data_full.json")
     val_data = load_json_dataset(Path(args.output_dir) / "data" / "val_examples.json")
 
     # Create validation set in training format
@@ -239,23 +244,26 @@ def train_vft_bct(args):
     )
 
     # Train BCT
-    print("\nTraining BCT model...")
-    train_sft(
-        model_name=args.base_model,
-        train_data=bct_data,
-        val_data=val_train_format,
-        output_dir=str(models_dir / "bct"),
-        num_epochs=1,
-        batch_size=256,
-        learning_rate=1e-5,
-        warmup_steps=10,
-        gradient_accumulation_steps=args.grad_accum,
-        use_lora=args.use_lora,
-        wandb_project=args.wandb_project,
-        run_name="bct-sft",
-    )
+    if not args.skip_bct:
+        print("\nTraining BCT model...")
+        train_sft(
+            model_name=args.base_model,
+            train_data=bct_data,
+            val_data=val_train_format,
+            output_dir=str(models_dir / "bct"),
+            num_epochs=1,
+            batch_size=256,
+            learning_rate=1e-5,
+            warmup_steps=10,
+            gradient_accumulation_steps=args.grad_accum,
+            use_lora=args.use_lora,
+            wandb_project=args.wandb_project,
+            run_name="bct-sft",
+        )
+    else:
+        print("\nSkipping BCT training (--skip_bct)")
 
-    print("VFT and BCT training complete!")
+    print("VFT training complete!" if args.skip_bct else "VFT and BCT training complete!")
 
 
 def train_rl(args):
@@ -288,8 +296,8 @@ def train_rl(args):
             train_data=rl_data,
             output_dir=str(models_dir / f"{name}_rl"),
             num_steps=150,
-            batch_size=256,
-            num_rollouts=8,
+            batch_size=16,  # 4 GPUs * 4 grad_accum * 1 per_device = 16
+            num_rollouts=4,
             learning_rate=1e-5,
             warmup_steps=10,
             kl_coef=0.001,
@@ -357,6 +365,7 @@ def evaluate(args):
             test_examples,
             HELD_OUT_CUES,
             output_path=str(results_dir / f"{name}_held_out.json"),
+            batch_size=args.batch_size,
         )
 
         # Also evaluate on training cues
@@ -368,10 +377,11 @@ def evaluate(args):
             test_examples,
             VFT_BCT_CUES,
             output_path=str(results_dir / f"{name}_train_cues.json"),
+            batch_size=args.batch_size,
         )
 
         # MMLU accuracy
-        mmlu_acc = compute_mmlu_accuracy(model, tokenizer, test_examples)
+        mmlu_acc = compute_mmlu_accuracy(model, tokenizer, test_examples, batch_size=args.batch_size)
 
         all_results[name] = {
             "held_out_cues": results["overall"],
@@ -437,6 +447,8 @@ def main():
     parser.add_argument("--stage", type=str, default="all",
                        choices=["all", "data", "construct", "train_sft", "train_rl", "eval"],
                        help="Which stage to run")
+    parser.add_argument("--skip_bct", action="store_true",
+                       help="Skip BCT dataset construction (only generate VFT data)")
 
     args = parser.parse_args()
 

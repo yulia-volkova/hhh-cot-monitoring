@@ -15,6 +15,7 @@ build/
 
 # Output directories
 logs/
+output/models/
 
 # Checkpoints and models
 *.pt

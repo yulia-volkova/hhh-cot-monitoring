@@ -22,4 +22,5 @@ python scripts/run_pipeline.py \
     --base_model ../../models/Llama-3.1-8B-Instruct \
     --num_gpus 8 \
     --grad_accum 4 \
-    --stage train_sft
+    --stage train_sft \
+    --skip_bct

@@ -240,6 +240,7 @@ def evaluate_model(
     test_data: List[Dict],
     cue_types: List[str],
     output_path: Optional[str] = None,
+    batch_size: int = 32,
 ) -> Dict:
     """
     Full evaluation pipeline for a model.
@@ -263,7 +264,7 @@ def evaluate_model(
 
     # Compute cue influence
     influence_results, cue_influence_rate = compute_cue_influence(
-        model, tokenizer, paired_data
+        model, tokenizer, paired_data, batch_size=batch_size
     )
 
     # Compute verbalization rate

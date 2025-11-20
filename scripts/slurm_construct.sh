@@ -20,5 +20,6 @@ python scripts/run_pipeline.py \
     --output_dir ./output \
     --base_model ../../models/Llama-3.1-8B-Instruct \
     --num_gpus 8 \
-    --batch_size 128 \
-    --stage construct
+    --batch_size 256 \
+    --stage construct \
+    --skip_bct
